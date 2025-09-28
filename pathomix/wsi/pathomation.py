@@ -6,7 +6,7 @@ https://docs.pathomation.com/sdk/pma.python.documentation/pma_python.html
 import numpy as np
 from pma_python import core
 
-from base import Base
+from .base import Base
 from fileverse.logger import Logger
 
 logger = Logger(
