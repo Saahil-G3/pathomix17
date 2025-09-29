@@ -2,14 +2,59 @@ import numpy as np
 from abc import ABC
 from pathlib import Path
 
+from fileverse.formats.pickle import BasePickle
+base_pickle = BasePickle()
 
 class Base(ABC):
-    def __init__(self, wsi_path: Path, tissue_geom=None):
+    def __init__(self, wsi_path: Path, base_dir, tissue_geom=None):
         super().__init__()
         self.tissue_geom = tissue_geom
         self._wsi_path = Path(wsi_path)
         self.name = Path(self._wsi_path.name)
         self.stem = Path(self._wsi_path.stem)
+        self.base_dir = base_dir
+
+        self._load_metadata()
+
+    def _load_metadata(self):
+        base_dir = Path(self.base_dir) if self.base_dir is not None else Path()
+        metadata_path = base_dir/'pathomix'/f"metadata/{self.stem}"/f'{self.stem}.pkl'
+        if metadata_path.exists():
+            metadata = base_pickle.load(path = metadata_path)
+            self.dirs = metadata["dirs"]
+            self.paths = metadata["paths"]
+        else:
+            self._set_dirs_paths()
+            self.save_metadata(replace=True)
+
+    def _set_dirs_paths(self):
+        self.dirs = {}
+
+        if self.base_dir is not None:
+            self.dirs["main"] = Path(f"{self.base_dir}/pathomix")
+        else:
+            self.dirs["main"] = Path("pathomix")
+
+        self.dirs["metadata"] = self.dirs["main"] / f"metadata/{self.stem}"
+        self.dirs["metadata"].mkdir(exist_ok=True, parents=True)
+
+        self.dirs["inference"] = {}
+        self.dirs["inference"]["main"] = self.dirs["main"] / f"inference/{self.stem}"
+        self.dirs["inference"]["main"].mkdir(exist_ok=True, parents=True)
+
+        self.dirs['logits'] = self.dirs['main']/f'logits/{self.stem}'
+        self.dirs['logits'].mkdir(exist_ok=True, parents=True)
+
+        self.paths = {}
+        self.paths["inference"] = {}
+        self.paths['metadata'] = self.dirs['metadata']/f'{self.stem}.pkl'
+    
+    def save_metadata(self, replace):
+        metadata = {}
+        metadata['dirs'] = self.dirs
+        metadata['paths'] = self.paths
+        
+        base_pickle.save(data=metadata, path=self.paths['metadata'], replace=replace)
 
     def get_dims_for_mpp(self, target_mpp):
         scale, rescale = self.scale_mpp(target_mpp)
@@ -40,9 +85,7 @@ class Base(ABC):
                 break
         return key
 
-    def get_patchify_params(
-        self, target_mpp, patch_size, overlap, context
-    ):
+    def get_patchify_params(self, target_mpp, patch_size, overlap, context):
 
         _patch_size_ = _validate_and_convert_to_tuple(patch_size, "patch_size")
         _overlap_ = _validate_and_convert_to_tuple(overlap, "overlap")
@@ -55,8 +98,8 @@ class Base(ABC):
 
         if _context_ is not None:
             extraction_dims = (
-                _patch_size_[0] + 2*_context_[0],
-                _patch_size_[1] + 2*_context_[1],
+                _patch_size_[0] + 2 * _context_[0],
+                _patch_size_[1] + 2 * _context_[1],
             )
         else:
             extraction_dims = _patch_size_
@@ -95,35 +138,43 @@ class Base(ABC):
         return params
 
     def get_patchify_coordinates(self, patchify_params):
-    
-        factor_dict = patchify_params['factor']
-        extraction_dict = patchify_params['extraction']
-    
-        #y_patch_size, x_patch_size = extraction_dict['patch_size']
-        y_stride, x_stride = extraction_dict['stride']
-        y_extraction, x_extraction = extraction_dict['extraction_dims']
+
+        factor_dict = patchify_params["factor"]
+        extraction_dict = patchify_params["extraction"]
+
+        # y_patch_size, x_patch_size = extraction_dict['patch_size']
+        x_stride, y_stride = extraction_dict["stride"]
+        x_extraction, y_extraction = extraction_dict["extraction_dims"]
+
+        source2target = factor_dict["source2target"]
+
         
-        source2target = factor_dict['source2target']
-    
-        y_extraction_scaled = int(y_extraction*source2target)
-        x_extraction_scaled = int(x_extraction*source2target)
+        x_extraction_scaled = int(x_extraction * source2target)
+        y_extraction_scaled = int(y_extraction * source2target)
+
         
-        y_stride_scaled = int(y_stride*source2target) 
-        x_stride_scaled = int(x_stride*source2target)
-        
+        x_stride_scaled = int(x_stride * source2target)
+        y_stride_scaled = int(y_stride * source2target)
+
         x_max, y_max = self.dims
-    
+
         x_coords = np.arange(0, x_max, x_stride_scaled)
-        x_coords = np.where(x_coords + x_extraction_scaled > x_max, 
-                           x_max - x_extraction_scaled, x_coords)
-        
+        x_coords = np.where(
+            x_coords + x_extraction_scaled > x_max,
+            x_max - x_extraction_scaled,
+            x_coords,
+        )
+
         y_coords = np.arange(0, y_max, y_stride_scaled)
-        y_coords = np.where(y_coords + y_extraction_scaled > y_max,
-                           y_max - y_extraction_scaled, y_coords)
-        
-        X, Y = np.meshgrid(x_coords, y_coords, indexing='ij')
+        y_coords = np.where(
+            y_coords + y_extraction_scaled > y_max,
+            y_max - y_extraction_scaled,
+            y_coords,
+        )
+
+        X, Y = np.meshgrid(x_coords, y_coords, indexing="ij")
         coordinates = list(zip(X.ravel(), Y.ravel()))
-    
+
         return coordinates
 
     @staticmethod

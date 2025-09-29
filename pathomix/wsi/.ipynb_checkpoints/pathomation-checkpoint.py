@@ -5,6 +5,14 @@ https://docs.pathomation.com/sdk/pma.python.documentation/pma_python.html
 
 import numpy as np
 from pma_python import core
+from PIL import Image
+
+from torch.utils.data import DataLoader
+from torch.utils.data import Dataset as BaseDataset
+
+from torchvision.transforms import ToTensor
+
+pil_to_tensor = ToTensor()
 
 from .base import Base
 from fileverse.logger import Logger
@@ -18,8 +26,8 @@ logger = Logger(
 
 
 class Pathomation(Base):
-    def __init__(self, wsi_path, sessionID, tissue_geom=None):
-        super().__init__(wsi_path=wsi_path, tissue_geom=tissue_geom)
+    def __init__(self, wsi_path, sessionID, tissue_geom=None, base_dir=None):
+        super().__init__(wsi_path=wsi_path, tissue_geom=tissue_geom, base_dir=base_dir)
         self._slideRef = wsi_path
         self.sessionID = sessionID
 
@@ -29,65 +37,6 @@ class Pathomation(Base):
         logger.info(
             f"Initiated session with sessionID: {self.sessionID} for WSI at {self._wsi_path}."
         )
-
-    def get_thumbnail_at_mpp(self, target_mpp=50):
-        factor = self.get_factor_for_mpp(target_mpp=target_mpp)
-        dims = (int(self.dims[0] // factor), int(self.dims[1] // factor))
-        return self.get_thumbnail_at_dims(dims)
-
-    def get_thumbnail_at_dims(self, dims):
-        thumbnail = core.get_thumbnail_image(
-            self._slideRef,
-            width=dims[0],
-            height=dims[1],
-            sessionID=self.sessionID,
-            verify=True,
-        )
-        return thumbnail
-
-    def get_region_native(self, x: int, y: int, w: int, h: int, scale: float = 1):
-        region = core.get_region(
-            self._slideRef,
-            x=x,
-            y=y,
-            width=w,
-            height=h,
-            scale=scale,
-            sessionID=self.sessionID,
-        )
-        return region
-
-    def get_region_for_slicer(self, coordinate, patchify_params):
-
-        x, y = coordinate
-
-        factor_dict = patchify_params["factor"]
-        extraction_dict = patchify_params["extraction"]
-
-        context = extraction_dict["context"]
-        source2target = factor_dict["source2target"]
-
-        if context is not None:
-            y_context, x_context = context
-            y_context_scaled = int(y_context * source2target)
-            x_context_scaled = int(x_context * source2target)
-
-            x = x - x_context_scaled
-            y = y - y_context_scaled
-
-        y_extraction, x_extraction = extraction_dict["extraction_dims"]
-        y_extraction_scaled = int(y_extraction * source2target)
-        x_extraction_scaled = int(x_extraction * source2target)
-
-        region = self.get_region_native(
-            x=x,
-            y=y,
-            w=x_extraction_scaled,
-            h=y_extraction_scaled,
-            scale=1 / source2target,
-        )
-
-        return region
 
     def _configure(self):
         self.dims = core.get_pixel_dimensions(
@@ -125,3 +74,127 @@ class Pathomation(Base):
                 logger.warning(f"mpp_x is not equal to mpp_y at level {level}")
 
         self.level_mpp_dict = level_mpp_dict
+
+    def get_thumbnail_at_mpp(self, target_mpp=50):
+        factor = self.get_factor_for_mpp(target_mpp=target_mpp)
+        dims = (int(self.dims[0] // factor), int(self.dims[1] // factor))
+        return self.get_thumbnail_at_dims(dims)
+
+    def get_thumbnail_at_dims(self, dims):
+        thumbnail = core.get_thumbnail_image(
+            self._slideRef,
+            width=dims[0],
+            height=dims[1],
+            sessionID=self.sessionID,
+            verify=True,
+        )
+        return thumbnail
+
+    def get_region_native(self, x: int, y: int, w: int, h: int, scale: float = 1):
+        region = core.get_region(
+            self._slideRef,
+            x=x,
+            y=y,
+            width=w,
+            height=h,
+            scale=scale,
+            sessionID=self.sessionID,
+        )
+        return region
+
+    def get_region_for_dataloader(self, coordinate, patchify_params):
+
+        x, y = coordinate
+
+        factor_dict = patchify_params["factor"]
+        extraction_dict = patchify_params["extraction"]
+
+        context = extraction_dict["context"]
+        source2target = factor_dict["source2target"]
+
+        if context is not None:
+            x_context, y_context = context
+            
+            x_context_scaled = int(x_context * source2target)
+            y_context_scaled = int(y_context * source2target)
+
+            x_start = x - x_context_scaled
+            y_start = y - y_context_scaled
+        else:
+            x_start, y_start = x, y
+
+        x_extraction, y_extraction = extraction_dict["extraction_dims"]
+        x_extraction_scaled = int(x_extraction * source2target)
+        y_extraction_scaled = int(y_extraction * source2target)
+
+        region = self.get_region_native(
+            x=x_start,
+            y=y_start,
+            w=x_extraction_scaled,
+            h=y_extraction_scaled,
+            scale=1 / source2target,
+        )
+
+        return region
+
+    def get_default_dataloader(
+        self,
+        target_mpp,
+        patch_size=256,
+        overlap=16,
+        context=16,
+        batch_size=16,
+        shuffle=False,
+        **kwargs,
+    ):
+        dataset = InferenceDataset(
+            wsi=self,
+            target_mpp=target_mpp,
+            patch_size=patch_size,
+            overlap=overlap,
+            context=context,
+        )
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            **kwargs,
+        )
+
+        return dataloader
+
+
+class InferenceDataset(BaseDataset):
+    def __init__(self, wsi, target_mpp, patch_size, overlap, context, base_dir=None):
+        super().__init__()
+
+        self.wsi = wsi
+        self.patchify_params = self.wsi.get_patchify_params(
+            target_mpp=target_mpp,
+            patch_size=patch_size,
+            overlap=overlap,
+            context=context,
+        )
+        self.extraction_dict = self.patchify_params["extraction"]
+        self.factor_dict = self.patchify_params["factor"]
+        self.level_dict = self.patchify_params["level"]
+
+        self.coordinates = self.wsi.get_patchify_coordinates(
+            patchify_params=self.patchify_params
+        )
+
+    def __len__(self):
+        return len(self.coordinates)
+
+    def __getitem__(self, idx):
+        coordinate = self.coordinates[idx]
+        region = self.wsi.get_region_for_dataloader(
+            coordinate=coordinate, patchify_params=self.patchify_params
+        )
+        region = region.resize(
+            size=self.extraction_dict["extraction_dims"], resample=Image.BICUBIC
+        )
+        region = pil_to_tensor(region)
+        # region = resize(region, self.params["extraction_dims"])
+        return (coordinate, region)
