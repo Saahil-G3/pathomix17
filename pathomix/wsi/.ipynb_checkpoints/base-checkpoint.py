@@ -42,8 +42,9 @@ class Base(ABC):
         self.dirs["inference"]["main"] = self.dirs["main"] / f"inference/{self.stem}"
         self.dirs["inference"]["main"].mkdir(exist_ok=True, parents=True)
 
-        self.dirs['logits'] = self.dirs['main']/f'logits/{self.stem}'
-        self.dirs['logits'].mkdir(exist_ok=True, parents=True)
+        self.dirs['logits'] = {}
+        self.dirs['logits']["main"] = self.dirs['main']/f'logits/{self.stem}'
+        self.dirs['logits']["main"].mkdir(exist_ok=True, parents=True)
 
         self.paths = {}
         self.paths["inference"] = {}
@@ -92,7 +93,7 @@ class Base(ABC):
         if context is not None:
             _context_ = _validate_and_convert_to_tuple(context, "context")
         else:
-            _context_ = context
+            _context_ = (0,0)
 
         stride = (_patch_size_[0] - _overlap_[0], _patch_size_[1] - _overlap_[1])
 

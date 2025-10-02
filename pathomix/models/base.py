@@ -7,7 +7,7 @@ class Base(GPUManager):
     def __init__(self, gpu_id=0, device_type="gpu"):
         super().__init__(gpu_id=gpu_id, device_type=device_type)
 
-    def load(self):
+    def load_model(self):
         if self._model_class == "smp":
             if self._architecture == "UnetPlusPlus":
                 self.model = smp.UnetPlusPlus(**self._args)

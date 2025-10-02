@@ -12,6 +12,8 @@ from torch.utils.data import Dataset as BaseDataset
 
 from torchvision.transforms import ToTensor
 
+from pathomix.geometry.colors import get_hex_colors, percentage_to_hex_alpha
+
 pil_to_tensor = ToTensor()
 
 from .base import Base
@@ -114,7 +116,7 @@ class Pathomation(Base):
 
         if context is not None:
             x_context, y_context = context
-            
+
             x_context_scaled = int(x_context * source2target)
             y_context_scaled = int(y_context * source2target)
 
@@ -163,6 +165,50 @@ class Pathomation(Base):
         )
 
         return dataloader
+    """
+    Pathomation Specific Methods
+    """
+
+    def add_annotation(
+        self,
+        wkt,
+        layerID=666,
+        classification="Unclassified",
+        fill_opacity=65,
+        color=None,
+    ):
+
+        if color is None:
+            fillColor = f"#B2FF9E{percentage_to_hex_alpha(fill_opacity)}"  # Pale Lime
+        else:
+            fillColor = f"{color}{percentage_to_hex_alpha(fill_opacity)}"
+        ann = core.dummy_annotation()
+
+        ann["geometry"] = wkt
+        ann["lineThickness"] = 3
+        ann["color"] = f"#000000FF"
+        ann["fillColor"] = ()
+
+        add_annotation_output = core.add_annotations(
+            slideRef=self._slideRef,
+            classification=classification,
+            notes=classification,
+            anns=ann,
+            layerID=layerID,
+            sessionID=self.sessionID,
+        )
+
+        logger.info(f"Add annotation ({self.name}): {add_annotation_output['Code']}")
+
+    def clear_annotations_from_layerID(self, layerID=666):
+
+        clear_annotations_output = core.clear_annotations(
+            slideRef=self._slideRef, layerID=layerID, sessionID=self.sessionID
+        )
+        if clear_annotations_output:
+            logger.info(f"Cleared annotation for: {self.name}.")
+        else:
+            logger.warning(f"Unable to clear annotation at layer {layerID}.")
 
 
 class InferenceDataset(BaseDataset):
