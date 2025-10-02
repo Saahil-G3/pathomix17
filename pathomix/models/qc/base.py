@@ -40,15 +40,15 @@ def get_patching_uid(params: dict) -> str:
 
 
 class Base(PathomixBase, ABC):
-    def __init__(self, base_dir, gpu_id=0, device_type="gpu"):
+    def __init__(self, gpu_id=0, device_type="gpu"):
         super().__init__(gpu_id=gpu_id, device_type=device_type)
         self._set_model_specific_params()
         self._set_model_class()
-        self._set_paths_dirs(base_dir=base_dir)
+        self._set_paths_dirs()
 
         self._model_purpose = "qc"
 
-    def _set_paths_dirs(self, base_dir):
+    def _set_paths_dirs(self):
         self.dirs = {}
         # self.dirs['base'] = Path(base_dir)
         # self.dirs['base'].mkdir(exist_ok=True, parents=True)

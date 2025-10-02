@@ -19,9 +19,8 @@ class TissueDetectionV1(QCBase):
         self,
         gpu_id=0,
         device_type="gpu",
-        base_dir="pathomix_inference",
     ):
-        super().__init__(base_dir=base_dir, gpu_id=gpu_id, device_type=device_type)
+        super().__init__(gpu_id=gpu_id, device_type=device_type)
         #self.WEIGHTS_DIR = WEIGHTS_DIR
 
     def _set_model_specific_params(self) -> None:
