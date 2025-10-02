@@ -18,7 +18,7 @@ class Base(ABC):
 
     def _load_metadata(self):
         base_dir = Path(self.base_dir) if self.base_dir is not None else Path()
-        metadata_path = base_dir/'pathomix'/f"metadata/{self.stem}"/f'{self.stem}.pkl'
+        metadata_path = Path('pathomix')/base_dir/f"metadata/{self.stem}"/f'{self.stem}.pkl'
         if metadata_path.exists():
             metadata = base_pickle.load(path = metadata_path)
             self.dirs = metadata["dirs"]
@@ -31,7 +31,7 @@ class Base(ABC):
         self.dirs = {}
 
         if self.base_dir is not None:
-            self.dirs["main"] = Path(f"{self.base_dir}/pathomix")
+            self.dirs["main"] = Path(f"pathomix/{self.base_dir}")
         else:
             self.dirs["main"] = Path("pathomix")
 

@@ -182,12 +182,13 @@ class Pathomation(Base):
             fillColor = f"#B2FF9E{percentage_to_hex_alpha(fill_opacity)}"  # Pale Lime
         else:
             fillColor = f"{color}{percentage_to_hex_alpha(fill_opacity)}"
+            
         ann = core.dummy_annotation()
 
         ann["geometry"] = wkt
         ann["lineThickness"] = 3
         ann["color"] = f"#000000FF"
-        ann["fillColor"] = ()
+        ann["fillColor"] = fillColor
 
         add_annotation_output = core.add_annotations(
             slideRef=self._slideRef,
@@ -206,9 +207,16 @@ class Pathomation(Base):
             slideRef=self._slideRef, layerID=layerID, sessionID=self.sessionID
         )
         if clear_annotations_output:
-            logger.info(f"Cleared annotation for: {self.name}.")
+            logger.info(f"Cleared annotation for: {self.name} at layer {layerID}.")
         else:
             logger.warning(f"Unable to clear annotation at layer {layerID}.")
+
+    def clear_all_annotations(self):
+        clear_annotations_output = core.clear_all_annotations(slideRef=self._slideRef, sessionID=self.sessionID)
+        if clear_annotations_output:
+            logger.info(f"Cleared all annotations for: {self.name}.")
+        else:
+            logger.warning(f"Unable to clear all annotations.")
 
 
 class InferenceDataset(BaseDataset):

@@ -281,7 +281,7 @@ class Base(PathomixBase, ABC):
         with open(json_path, "w") as f:
             json.dump(wkt_dict, f, indent=2)
 
-    def get_wkt_dict(self, uid):
+    def get_wkt_dict(self, wsi, uid):
         with open(wsi.paths["inference"][self._model_name][uid]["wkt"], "r") as f:
             wkt_dict = json.load(f)
         return wkt_dict
