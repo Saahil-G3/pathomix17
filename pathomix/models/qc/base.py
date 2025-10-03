@@ -16,13 +16,14 @@ from torch.utils.data import DataLoader
 import torchvision.transforms.functional as F
 from torch.utils.data import Dataset as BaseDataset
 
-
+from fileverse.logger import Logger
 from fileverse.formats.pickle import BasePickle
-from pathomix.models.base import Base as PathomixBase
+from pathomix.models.base import Base as BaseModel
 from pathomix.geometry.tools.cv import get_shapely_poly
 
 base_pickle = BasePickle()
 
+logger = Logger(name="qc_model").get_logger()
 
 def close_open_h5_files():
     """Force close any open HDF5 files"""
@@ -39,7 +40,7 @@ def get_patching_uid(params: dict) -> str:
     return hashlib.md5(param_str.encode()).hexdigest()[:8]
 
 
-class Base(PathomixBase, ABC):
+class Base(BaseModel, ABC):
     def __init__(self, gpu_id=0, device_type="gpu"):
         super().__init__(gpu_id=gpu_id, device_type=device_type)
         self._set_model_specific_params()
@@ -92,6 +93,11 @@ class Base(PathomixBase, ABC):
                 exist_ok=True, parents=True
             )
 
+            wsi.logs[self._model_name] = {}
+            wsi.logs[self._model_name][uid] = {}
+            wsi.logs[self._model_name][uid]["inference"] = False
+            wsi.logs[self._model_name][uid]["post_processing"] = False
+
             wsi.paths["inference"][self._model_name][uid] = {}
 
             wsi.paths["inference"][self._model_name][uid]["logits"] = (
@@ -127,7 +133,6 @@ class Base(PathomixBase, ABC):
         replace=False,
         **kwargs,
     ):
-
         dataloader = wsi.get_default_dataloader(
             target_mpp=self._mpp,
             patch_size=patch_size,
@@ -142,6 +147,12 @@ class Base(PathomixBase, ABC):
             extraction_dict=dataloader.dataset.patchify_params["extraction"],
             replace=replace,
         )
+
+        if wsi.logs[self._model_name][uid]["inference"] and not replace:
+            logger.info(
+                f"Inference for {wsi.name} for UID: {uid} already exists. Set replace=True for replacing the current predictions"
+            )
+            return uid
 
         base_pickle.save(
             data=dataloader.dataset.patchify_params,
@@ -230,9 +241,18 @@ class Base(PathomixBase, ABC):
                 f_logits.close()
 
             f_predictions.close()
+
+        wsi.logs[self._model_name][uid]["inference"] = True
+        wsi.save_metadata(replace=True)
+        logger.info(f"Successfully completed inference for {wsi.name} for UID: {uid}")
+        
         return uid
 
-    def post_process(self, wsi, uid, batch_size=16):
+    def post_process(self, wsi, uid, batch_size=16, replace=False):
+
+        if wsi.logs[self._model_name][uid]["post_processing"] and not replace:
+            logger.info(f"Post-processing already complete for {wsi.name} for UID: {uid}. Set replace=True for replacing the current predictions.")
+            return
 
         dataset = PostProcessingDatasetShapely(wsi=wsi, model=self, uid=uid)
 
@@ -258,30 +278,23 @@ class Base(PathomixBase, ABC):
                     origin=(0, 0),
                 )
                 wkt_dict[k] = scaled_poly.wkt
-        # polys_dict = dict(polys_dict)
-
-        # mask_dict = {}
-        # polys = []
-        # for k, v in polys_dict.items():
-        #     polys.extend(v)
-        #     mpoly = MultiPolygon(v).buffer(0)
-        #     mask_dict[k] = mpoly
-
-        # wkt_dict = {}
-
-        # for k, v in mask_dict.items():
-        #     scaled_poly = scale(
-        #         v,
-        #         xfact=dataset.source2target,
-        #         yfact=dataset.source2target,
-        #         origin=(0, 0),
-        #     )
-        #     wkt_dict[k] = scaled_poly.wkt
+                
         json_path = wsi.paths["inference"][self._model_name][uid]["wkt"]
         with open(json_path, "w") as f:
             json.dump(wkt_dict, f, indent=2)
 
+        wsi.logs[self._model_name][uid]["post_processing"] = True
+        wsi.save_metadata(replace=True)
+        logger.info(f"Successfully completed post-processing for {wsi.name} for UID: {uid}")
+
     def get_wkt_dict(self, wsi, uid):
+        if not wsi.logs[self._model_name][uid]["inference"]:
+            logger.warning(f"Inference not completed for {wsi.name} for UID:{uid}")
+            return
+            
+        if not wsi.logs[self._model_name][uid]["post_processing"]:
+            logger.warning(f"Post-processing data does not exist for {wsi.name} for UID:{uid}")
+            return
         with open(wsi.paths["inference"][self._model_name][uid]["wkt"], "r") as f:
             wkt_dict = json.load(f)
         return wkt_dict

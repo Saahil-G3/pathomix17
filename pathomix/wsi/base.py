@@ -23,6 +23,7 @@ class Base(ABC):
             metadata = base_pickle.load(path = metadata_path)
             self.dirs = metadata["dirs"]
             self.paths = metadata["paths"]
+            self.logs = metadata["logs"]
         else:
             self._set_dirs_paths()
             self.save_metadata(replace=True)
@@ -49,17 +50,20 @@ class Base(ABC):
         self.paths = {}
         self.paths["inference"] = {}
         self.paths['metadata'] = self.dirs['metadata']/f'{self.stem}.pkl'
+
+        self.logs = {}
     
     def save_metadata(self, replace):
         metadata = {}
         metadata['dirs'] = self.dirs
         metadata['paths'] = self.paths
+        metadata['logs'] = self.logs
         
         base_pickle.save(data=metadata, path=self.paths['metadata'], replace=replace)
 
     def get_dims_for_mpp(self, target_mpp):
-        scale, rescale = self.scale_mpp(target_mpp)
-        scaled_dims = self.get_dims_at_scale(scale)
+        scale, rescale = self.get_scale_rescale_pair(target_mpp)
+        scaled_dims = self.get_dims_for_scale(scale)
         return scaled_dims
 
     def get_dims_for_scale(self, scale):
@@ -76,7 +80,7 @@ class Base(ABC):
         return factor
 
     def get_scale_rescale_pair(self, target_mpp):
-        rescale = self.factor_mpp(target_mpp)
+        rescale = self.get_factor_for_mpp(target_mpp)
         scale = 1 / rescale
         return scale, rescale
 
