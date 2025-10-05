@@ -1,7 +1,9 @@
 import numpy as np
 from abc import ABC
 from pathlib import Path
+from shapely.prepared import prep as prep_geom_for_query
 
+from pathomix.geometry.tools.shapely import get_box
 from fileverse.formats.pickle import BasePickle
 base_pickle = BasePickle()
 
@@ -181,6 +183,48 @@ class Base(ABC):
         coordinates = list(zip(X.ravel(), Y.ravel()))
 
         return coordinates
+
+    def get_filtered_coordinates(self, patchify_params):
+        if self.tissue_geom is None:
+            logger.warning(f"No tissue_geom found for the wsi object.")
+            return
+            
+        coordinates = self.get_patchify_coordinates(
+            patchify_params=patchify_params
+        )
+    
+        context = patchify_params['extraction']["context"]
+        source2target = patchify_params["factor"]["source2target"]
+        x_extraction, y_extraction = patchify_params['extraction']["extraction_dims"]
+        
+        x_extraction_scaled = int(x_extraction * source2target)
+        y_extraction_scaled = int(y_extraction * source2target)
+
+        if context is not None:
+            x_context_scaled = int(context[0] * source2target)
+            y_context_scaled = int(context[1] * source2target)
+        else:
+            x_context_scaled = y_context_scaled = 0
+
+        
+        prepped_tissue_geom = prep_geom_for_query(self.tissue_geom)
+        
+        contained_coordinates = []
+        boundary_coordinates = []
+        
+        for x, y in coordinates:
+            
+            x_start = x - x_context_scaled
+            y_start = y - y_context_scaled
+            
+            box = get_box(x_start, y_start, x_extraction_scaled, y_extraction_scaled)
+            if prepped_tissue_geom.intersects(box):
+                if prepped_tissue_geom.contains(box):
+                    contained_coordinates.append((x, y))
+                else:
+                    boundary_coordinates.append((x, y))
+    
+        return contained_coordinates, boundary_coordinates
 
     @staticmethod
     def round_to_nearest_even(x):

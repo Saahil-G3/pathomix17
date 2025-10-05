@@ -4,6 +4,7 @@ import warnings
 import numpy as np
 from shapely.affinity import scale
 from shapely.geometry import mapping
+from shapely.geometry import box as Box
 
 
 IS_COLLECTION = {}
@@ -28,6 +29,21 @@ def geom_to_geojson(geom):
     """
     geojson_feature = geojson.Feature(geometry=mapping(geom))
     return geojson_feature
+
+def get_box(x, y, height, width):
+    """
+    Creates a rectangular bounding box geometry.
+
+    Args:
+        x (float): The x-coordinate of the box's lower-left corner.
+        y (float): The y-coordinate of the box's lower-left corner.
+        height (float): The height of the box.
+        width (float): The width of the box.
+
+    Returns:
+        shapely.geometry.Polygon: A rectangular bounding box as a Shapely Polygon.
+    """
+    return Box(x, y, x + height, y + width)
 
 def flatten_geom_collection(geom):
     """

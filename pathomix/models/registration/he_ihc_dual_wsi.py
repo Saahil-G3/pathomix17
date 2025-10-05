@@ -2,21 +2,17 @@ import torch
 from pathlib import Path
 from torchvision import transforms
 from torch.utils.data import DataLoader
-from pathomix.geometry.tools.shapely import get_numpy_mask_for_geom
+from shapely.affinity import translate, scale
 
 from fileverse.logger import Logger
-from cross_corr import XCorr, RegistrationDataset
+from .cross_corr import XCorr, RegistrationDataset
 from pathomix.geometry.plotting import plot_overlay
+from pathomix.geometry.tools.shapely import get_numpy_mask_for_geom
 
 to_tensor = transforms.ToTensor()
 logger = Logger(name="he_x_ihc").get_logger()
 
-
-def get_uid(param_str) -> str:
-    return hashlib.md5(param_str.encode()).hexdigest()[:8]
-
-
-class HExIHC(XCorr):
+class HExIHCxDualWSI(XCorr):
     """
     wsi_target: Where you want to reach.
     wsi_source: Source you want to send.
@@ -32,8 +28,7 @@ class HExIHC(XCorr):
         self.wsi_source_name = str(self.wsi_source.name)
         self.wsi_target_name = str(self.wsi_target.name)
 
-        self._configure()
-        self._update_wsi_paths_dirs()
+        self._update_wsi_paths_dirs()        
 
     def _update_wsi_paths_dirs(self, replace=False):
         # Source WSI
@@ -95,7 +90,27 @@ class HExIHC(XCorr):
             self.wsi_target.logs["he_x_ihc"][self.wsi_source_name][
                 "metadata_saved"
             ] = True
+
+            scale_factor_source = self.wsi_source.get_factor_for_mpp(
+                target_mpp=self.target_mpp
+            )
+
+            scale_factor_target = self.wsi_target.get_factor_for_mpp(
+                target_mpp=self.target_mpp
+            )
+
+            self.wsi_target.logs["he_x_ihc"][self.wsi_source_name][
+                "target_mpp"
+            ] = self.target_mpp
+            self.wsi_target.logs["he_x_ihc"][self.wsi_source_name][
+                "scale_factor_source"
+            ] = scale_factor_source
+            self.wsi_target.logs["he_x_ihc"][self.wsi_source_name][
+                "scale_factor_target"
+            ] = scale_factor_target
             self.wsi_target.save_metadata(replace=True)
+
+        self.wsi_target.logs["he_x_ihc"][self.wsi_source_name]["template_corrected"] = False
 
     def _configure(self):
         logger.info(f"Configuring for registration.")
@@ -127,6 +142,7 @@ class HExIHC(XCorr):
             grayscale_source=grayscale_source,
             source_region_mask=source_region_mask,
         )
+
         logger.info(f"Configuration complete.")
 
     def register(self, angles, stride, desc, **kwargs):
@@ -169,6 +185,10 @@ class HExIHC(XCorr):
             y_new - delta_pad : y_new + delta_pad + (2 * pad),
         ]
 
+        self.wsi_target.logs["he_x_ihc"][self.wsi_source_name][
+            "template_corrected"
+        ] = True
+
         return pad, delta_pad
 
     def run(
@@ -189,6 +209,8 @@ class HExIHC(XCorr):
                 f"he_x_ihc cycle complete for target wsi: {self.wsi_target_name} wrt source wsi: {self.wsi_source_name}. Set replace=True to run again."
             )
             return
+            
+        self._configure()
 
         angles_coarse = self.get_quadrant_angles()
 
@@ -243,6 +265,18 @@ class HExIHC(XCorr):
         )
 
     def plot_registration_overlay(self, mask=True):
+
+        if self.wsi_target.logs["he_x_ihc"][self.wsi_source_name]["run_complete"]:
+            if not self.wsi_target.logs["he_x_ihc"][self.wsi_source_name][
+                "template_corrected"
+            ]:
+                self._configure()
+                _ = self.correct_template_target(
+                    registered_data=self.wsi_target.logs["he_x_ihc"][
+                        self.wsi_source_name
+                    ]["coarse"]
+                )
+
         x_new, y_new, angle = self.wsi_target.logs["he_x_ihc"][self.wsi_source_name][
             "fine"
         ]
@@ -300,6 +334,35 @@ class HExIHC(XCorr):
         shift_y = (origin_source[1] - origin_target[1]).item()
 
         return (shift_x, shift_y)
+
+    def get_shifted_geom_source2target(self, geom_source):
+        shift = self.wsi_target.logs["he_x_ihc"][self.wsi_source_name]["shift"]
+        scale_factor_target = self.wsi_target.logs["he_x_ihc"][self.wsi_source_name][
+            "scale_factor_target"
+        ]
+
+        shift_x, shift_y = shift
+        shift_x = shift_x * scale_factor_target
+        shift_y = shift_y * scale_factor_target
+
+        source2target_factor = self.wsi_target.get_factor_for_mpp(
+            target_mpp=self.wsi_target.mpp, source_mpp=self.wsi_source.mpp
+        )
+
+        geom_target = scale(
+            geom=geom_source,
+            xfact=source2target_factor,
+            yfact=source2target_factor,
+            origin=(0, 0),
+        )
+
+        geom_target = translate(
+            geom_target,
+            xoff=shift_y,
+            yoff=shift_x,
+        )
+
+        return geom_target
 
     @staticmethod
     def get_quadrant_range(angle, astride):
